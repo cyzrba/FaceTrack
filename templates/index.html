@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 智能监控数据台</title>
+    <style>
+        /* --- 全局样式 --- */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #ecf0f1;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 15px;
+        }
+
+        h1 { color: #00ff9d; margin: 0; letter-spacing: 1px;}
+        p.subtitle { color: #888; font-size: 0.9em; margin-top: 5px; }
+
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        /* --- 视频区域 --- */
+        .video-box {
+            border: 2px solid #444;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            background: #000;
+        }
+
+        .video-box img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* --- 表格面板区域 --- */
+        .table-panel {
+            flex: 1;
+            min-width: 450px; /* 保证表格有足够宽度 */
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .stat-badge {
+            background: #333;
+            padding: 5px 15px;
+            border-radius: 20px;
+            border: 1px solid #555;
+        }
+
+        #count {
+            color: #00ff9d;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        /* --- 表格样式 --- */
+        .table-container {
+            max-height: 600px;
+            overflow-y: auto; /*如果行数太多，允许滚动*/
+        }
+
+        table.data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+        }
+
+        table.data-table th {
+            background-color: #3d3d3d;
+            color: #bbb;
+            text-align: left;
+            padding: 12px 10px;
+            position: sticky;
+            top: 0; /* 表头固定 */
+        }
+
+        table.data-table td {
+            padding: 10px;
+            border-bottom: 1px solid #444;
+        }
+
+        table.data-table tr:hover {
+            background-color: #383838;
+        }
+
+        /* --- 标签样式 --- */
+        .tag {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+            display: inline-block;
+        }
+
+        /* 这里的颜色对应 Python 后端的判断逻辑 */
+        .tag.Man { background-color: rgba(0, 123, 255, 0.2); color: #4dabf7; border: 1px solid #0056b3; }
+        .tag.Woman { background-color: rgba(255, 0, 85, 0.2); color: #ff6b8b; border: 1px solid #b3003b; }
+
+        .coord-text {
+            font-family: 'Courier New', monospace;
+            color: #aaa;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🎥 AI 实时监控台</h1>
+        <p class="subtitle">YOLOv8 ByteTrack & DeepFace Analysis Dashboard</p>
+    </div>
+
+    <div class="container">
+        <div class="video-box">
+            <img src="{{ url_for('video_feed') }}" width="800" alt="Video Stream" />
+        </div>
+
+        <div class="table-panel">
+            <div class="panel-header">
+                <h3>实时检测数据</h3>
+                <div class="stat-badge">
+                    当前人数: <span id="count">0</span>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">ID</th>
+                            <th style="width: 80px;">性别</th>
+                            <th>情绪 (置信度)</th>
+                            <th>坐标 [x1, y1, x2, y2]</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        </tbody>
+                </table>
+            </div>
+            <div id="empty-msg" style="text-align: center; color: #666; margin-top: 20px;">
+                等待目标出现...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const REFRESH_RATE = 500; // 刷新频率(毫秒)
+
+        async function updateTable() {
+            try {
+                // 请求 Python 后端的数据接口
+                const response = await fetch('/data');
+                const data = await response.json();
+
+                // 更新人数
+                document.getElementById('count').innerText = data.person_count;
+
+                const tbody = document.getElementById('table-body');
+                const emptyMsg = document.getElementById('empty-msg');
+
+                tbody.innerHTML = ''; // 清空旧表格数据
+
+                if (data.details.length === 0) {
+                    emptyMsg.style.display = 'block';
+                    return;
+                } else {
+                    emptyMsg.style.display = 'none';
+                }
+
+                // 遍历数据并插入表格行
+                data.details.forEach(p => {
+                    const row = document.createElement('tr');
+
+                    // 格式化坐标显示
+                    const boxStr = `[${p.box[0]}, ${p.box[1]}, ${p.box[2]}, ${p.box[3]}]`;
+
+                    row.innerHTML = `
+                        <td><strong>${p.id}</strong></td>
+                        <td><span class="tag ${p.gender}">${p.gender}</span></td>
+                        <td>${p.emotion} <span style="color:#888; font-size:0.8em">(${p.conf}%)</span></td>
+                        <td><span class="coord-text">${boxStr}</span></td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+            } catch (e) {
+                console.error("数据获取失败:", e);
+            }
+        }
+
+        // 启动定时器
+        setInterval(updateTable, REFRESH_RATE);
+    </script>
+</body>
+</html>
